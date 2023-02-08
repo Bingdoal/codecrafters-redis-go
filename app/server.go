@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -25,39 +26,66 @@ func main() {
 			continue
 		}
 		fmt.Println("Accept a connection: " + conn.RemoteAddr().String())
-		go readCmd(conn)
+		go processConn(conn)
 	}
-
 }
 
-func readCmd(conn net.Conn) {
+func processConn(conn net.Conn) {
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
 	for true {
-		var cmdByte = make([]byte, 2048)
-
-		length, err := conn.Read(cmdByte)
-		if err != nil && length == 0 {
-			fmt.Println("Error reading streaming or len is 0: ", err.Error())
-			break
-		}
-		cmd := strings.ToLower(string(cmdByte))
-		lines := strings.Split(cmd, "\n")
-		fmt.Println("receive len: " + strconv.Itoa(length))
-		for i := 0; i < len(lines); i++ {
-			msg := strings.TrimSpace(lines[i])
-			fmt.Println("receive msg: " + msg)
-			switch {
-			case msg == "ping":
-				readPingCmd(conn)
-			}
+		cmds, err := readCmd(reader)
+		if err != nil {
+			return
 		}
 
+		cmds[0] = strings.ToLower(cmds[0])
+		switch {
+		case cmds[0] == "ping":
+			cmdPing(conn)
+		case cmds[0] == "echo":
+			cmdEcho(conn, cmds)
+		}
 	}
 }
 
-func readPingCmd(conn net.Conn) {
-	fmt.Println("Response PONG.")
+func readCmd(reader *bufio.Reader) ([]string, error) {
+	first, _, err := reader.ReadLine()
+	if err != nil {
+		return nil, err
+	}
+	cmdCount, _ := strconv.Atoi(string(first)[1:])
+
+	var cmds = make([]string, 0)
+	for i := 0; i < cmdCount; i++ {
+		_, _, err := reader.ReadLine()
+		if err != nil {
+			return nil, err
+		}
+		buffer, _, err := reader.ReadLine()
+		if err != nil {
+			return nil, err
+		}
+		cmds = append(cmds, string(buffer))
+	}
+	return cmds, err
+}
+
+func cmdPing(conn net.Conn) {
+	fmt.Println("cmd ping.")
 	response := "PONG"
-	length := len(response)
-	responseMsg := []byte("$" + strconv.Itoa(length) + "\r\n" + response + "\r\n")
+	sendResponse(conn, response)
+}
+
+func cmdEcho(conn net.Conn, cmds []string) {
+	fmt.Println("cmd echo.")
+	response := strings.Join(cmds[1:], " ")
+	sendResponse(conn, response)
+}
+
+func sendResponse(conn net.Conn, msg string) {
+	length := len(msg)
+	responseMsg := []byte("$" + strconv.Itoa(length) + "\r\n" + msg + "\r\n")
 	conn.Write(responseMsg)
 }
