@@ -7,7 +7,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
+
+var storageMap = map[string]string{}
+var timerMap = map[string]*time.Timer{}
 
 func main() {
 	fmt.Println("Logs from your program will appear here!")
@@ -41,11 +45,15 @@ func processConn(conn net.Conn) {
 		}
 
 		cmds[0] = strings.ToLower(cmds[0])
-		switch {
-		case cmds[0] == "ping":
+		switch cmds[0] {
+		case "ping":
 			cmdPing(conn)
-		case cmds[0] == "echo":
+		case "echo":
 			cmdEcho(conn, cmds)
+		case "set":
+			cmdSet(conn, cmds)
+		case "get":
+			cmdGet(conn, cmds)
 		}
 	}
 }
@@ -72,6 +80,47 @@ func readCmd(reader *bufio.Reader) ([]string, error) {
 	return cmds, err
 }
 
+func cmdSet(conn net.Conn, cmds []string) {
+	fmt.Println("cmd set")
+	key := cmds[1]
+	storageMap[key] = cmds[2]
+
+	if len(cmds) >= 4 &&
+		strings.ToLower(cmds[3]) == "px" {
+		expiredTime := cmds[4]
+		expired, err := strconv.Atoi(expiredTime)
+		if err != nil {
+			fmt.Errorf("expired: %s error: %s", expiredTime, err.Error())
+			return
+		}
+
+		_, containTimer := timerMap[key]
+		if containTimer && expired >= 0 {
+			timerMap[key].Reset(time.Duration(expired) * time.Second)
+		} else if containTimer && expired < 0 {
+			timerMap[key].Stop()
+			delete(timerMap, key)
+		} else if !containTimer && expired >= 0 {
+			timer := time.AfterFunc(time.Duration(expired)*time.Second, func() {
+				delete(storageMap, key)
+				delete(timerMap, key)
+			})
+			timerMap[key] = timer
+		}
+	}
+	sendResponse(conn, "OK")
+}
+
+func cmdGet(conn net.Conn, cmds []string) {
+	fmt.Println("cmd get")
+	value, contain := storageMap[cmds[1]]
+	if !contain {
+		sendResponse(conn, "")
+	} else {
+		sendResponse(conn, value)
+	}
+}
+
 func cmdPing(conn net.Conn) {
 	fmt.Println("cmd ping.")
 	response := "PONG"
@@ -86,6 +135,7 @@ func cmdEcho(conn net.Conn, cmds []string) {
 
 func sendResponse(conn net.Conn, msg string) {
 	length := len(msg)
-	responseMsg := []byte("$" + strconv.Itoa(length) + "\r\n" + msg + "\r\n")
+	completeMsg := "$" + strconv.Itoa(length) + "\r\n" + msg + "\r\n"
+	responseMsg := []byte(completeMsg)
 	conn.Write(responseMsg)
 }
