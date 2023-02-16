@@ -101,7 +101,7 @@ func cmdSet(conn net.Conn, cmds []string) {
 			timerMap[key].Stop()
 			delete(timerMap, key)
 		} else if !containTimer && expired >= 0 {
-			timer := time.AfterFunc(time.Duration(expired)*time.Second, func() {
+			timer := time.AfterFunc(time.Duration(expired)*time.Millisecond, func() {
 				delete(storageMap, key)
 				delete(timerMap, key)
 			})
@@ -115,7 +115,7 @@ func cmdGet(conn net.Conn, cmds []string) {
 	fmt.Println("cmd get")
 	value, contain := storageMap[cmds[1]]
 	if !contain {
-		sendResponse(conn, "")
+		sendNullResponse(conn)
 	} else {
 		sendResponse(conn, value)
 	}
@@ -136,6 +136,12 @@ func cmdEcho(conn net.Conn, cmds []string) {
 func sendResponse(conn net.Conn, msg string) {
 	length := len(msg)
 	completeMsg := "$" + strconv.Itoa(length) + "\r\n" + msg + "\r\n"
+	responseMsg := []byte(completeMsg)
+	conn.Write(responseMsg)
+}
+
+func sendNullResponse(conn net.Conn) {
+	completeMsg := "$-1\r\n\r\n"
 	responseMsg := []byte(completeMsg)
 	conn.Write(responseMsg)
 }
